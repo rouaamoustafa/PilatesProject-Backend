@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { User } from './entities/user.entity';
 import { Role } from '../auth/roles.enum'; // Relative import
+import { CreateAdminDto } from './dto/create-admin.dto';
 
 // ─── Add these two interfaces ────────────────────────────────────────
 export interface PaginateParams {
@@ -56,6 +57,29 @@ export class UserService {
     const user = this.userRepo.create({ ...data, password: hash });
     return this.userRepo.save(user);
   }
+   /** Create an ADMIN user (superadmin only) */
+   async createAdmin(dto: CreateAdminDto): Promise<User> {
+    const exists = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (exists) throw new ConflictException('Email already exists');
+
+    const hash = await bcrypt.hash(dto.password, 10);
+    const admin = this.userRepo.create({
+      full_name: dto.full_name,
+      email: dto.email,
+      password: hash,
+      role: Role.ADMIN,
+    });
+    return this.userRepo.save(admin);
+  }
+
+  // /** Hard-delete an ADMIN user (superadmin only) */
+  // async deleteAdminHard(id: string): Promise<void> {
+  //   const user = await this.userRepo.findOne({ where: { id } });
+  //   if (!user || user.role !== Role.ADMIN) {
+  //     throw new NotFoundException('Admin not found');
+  //   }
+  //   await this.userRepo.remove(user);
+  // }
 
   async getAllUsers(params: PaginateParams): Promise<UsersResponse> {
     const { page, pageSize, filter } = params;
@@ -108,6 +132,28 @@ export class UserService {
     return this.userRepo.findOne({ where: { email } });
   }
   
+  async findByEmailWithRelations(email:string):Promise<User |null >{
+    try{
+      const user = await this.userRepo
+      .createQueryBuilder("user")
+      .leftJoinAndSelect("user.instructor","instructor")
+      .leftJoinAndSelect("user.gymOwner","gymOwner")
+      .where("user.email = email",{email})
+      .getOne()
+
+      console.log(
+        'User query result for ${email}:',user?'Found user with ID ${user.id},role ${user.role}':
+        "No user found",
+      )
+      return user
+    }
+    catch(error){
+      console.error("Error finding user by email with relations: $ {email}",
+        error.stack || error 
+      )
+      return null
+    }
+  }
   findById(id: string) {
     return this.userRepo.findOne({ where: { id } });
   }
@@ -134,7 +180,7 @@ export class UserService {
     if (hard) return this.hardDelete(id);
     return this.softDelete(id);
   }
-
+  
   async softDelete(id: string) {
     const res = await this.userRepo.softDelete(id);
     if (!res.affected) throw new NotFoundException(`User ${id} not found`);
@@ -152,4 +198,6 @@ export class UserService {
     if (!res.affected) throw new NotFoundException(`Cannot restore ${id}`);
     return { message: 'User restored successfully' };
   }
+
+
 }

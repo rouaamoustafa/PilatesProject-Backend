@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsUrl } from 'class-validator'
+import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsUrl , IsUUID} from 'class-validator'
 import { Role } from '../../auth/roles.enum'
 
 export class CreateInstructorDto {
@@ -6,6 +6,7 @@ export class CreateInstructorDto {
   @IsString()              full_name: string
 
   @IsEmail()               email:     string
+
 
   @IsString()
   @MinLength(6)            password:  string
@@ -17,4 +18,7 @@ export class CreateInstructorDto {
   @IsOptional() @IsUrl()    link?:     string
   @IsOptional() @IsString() image?:    string
   @IsOptional() @IsString() cv?:       string
+  @IsOptional()
+  @IsUUID()
+  gymOwnerId?: string
 }

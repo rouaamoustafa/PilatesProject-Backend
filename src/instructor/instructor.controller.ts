@@ -1,91 +1,135 @@
 // src/instructor/instructor.controller.ts
+
 import {
   Controller,
   Post,
   Patch,
   Delete,
   Get,
-  Body,
-  Param,
-  UseGuards,
   Req,
+  Param,
   Query,
+  UseGuards,
   NotFoundException,
+  Body,
 } from '@nestjs/common'
 import { FastifyRequest } from 'fastify'
-import { MultipartFile, Multipart } from '@fastify/multipart'
-import { Readable } from 'stream'
-import { createWriteStream, mkdirSync, existsSync } from 'fs'
-import { join, extname } from 'path'
+import type { MultipartValue, MultipartFile } from '@fastify/multipart'
 
-import { InstructorService }    from './instructor.service'
-import { CreateInstructorDto }   from './dto/create-instructor.dto'
-import { UpdateInstructorDto }   from './dto/update-instructor.dto'
-import { JwtAuthGuard }          from '../auth/jwt-auth.guard'
-import { RolesGuard }            from '../auth/roles.guard'
-import { Roles }                 from '../auth/roles.decorator'
-import { Role }                  from '../auth/roles.enum'
+import { InstructorService } from './instructor.service'
+import { CreateInstructorDto } from './dto/create-instructor.dto'
+import { UpdateInstructorDto } from './dto/update-instructor.dto'
+import { JwtAuthGuard } from '../auth/jwt-auth.guard'
+import { RolesGuard } from '../auth/roles.guard'
+import { Roles } from '../auth/roles.decorator'
+import { Role } from '../auth/roles.enum'
+import { ImgbbService } from '../imgbb/imgbb.service'
+import { User } from '../user/entities/user.entity'
+import { GymOwnerService }    from '../gym-owner/gym-owner.service'
+import { Public } from 'src/common/decorators/public.decorator'
 
-type ParsedFiles = { imagePath?: string; cvPath?: string }
-const UPLOAD_DIR = 'uploads/instructors'
-if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true })
+// Extend FastifyRequest with our injected `user`
+type ReqWithUser = FastifyRequest & { user: User }
+
+interface ParsedFiles {
+  imageUrl?: string
+  cvUrl?: string
+}
+
+// Type-guard: file parts have `.file`, field parts don't
+function isFilePart(
+  part: MultipartValue | MultipartFile,
+): part is MultipartFile {
+  return 'file' in part
+}
 
 @Controller('instructors')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class InstructorController {
-  constructor(private readonly svc: InstructorService) {}
+  constructor(
+    private readonly svc: InstructorService,
+    private readonly imgbb: ImgbbService,
+    private readonly gymOwnerSvc : GymOwnerService
+  ) {}
 
+  /** Read multipart, upload files to ImgBB, return text fields + URLs */
   private async parseMultipart(
     req: FastifyRequest,
   ): Promise<{ fields: Record<string, any>; files: ParsedFiles }> {
-    const parts   = await (req as any).parts()
+    const parts = (req as any).parts() as AsyncIterable<
+      MultipartValue | MultipartFile
+    >
     const fields: Record<string, any> = {}
-    const files:  ParsedFiles         = {}
+    const files: ParsedFiles = {}
 
-    for await (const part of parts as AsyncIterableIterator<Multipart>) {
-      if ((part as MultipartFile).file) {
-        const f        = part as MultipartFile
-        const fileName = `${f.fieldname}-${Date.now()}${extname(f.filename)}`
-        const savePath = join(UPLOAD_DIR, fileName)
+    for await (const part of parts) {
+      if (isFilePart(part)) {
+        // Buffer entire file
+        const buffers: Buffer[] = []
+        for await (const chunk of part.file as AsyncIterable<Buffer>) {
+          buffers.push(chunk)
+        }
+        const buffer = Buffer.concat(buffers)
 
-        await new Promise<void>((resolve, reject) => {
-          ;(f.file as Readable)
-            .pipe(createWriteStream(savePath))
-            .on('close', () => resolve())
-            .on('error', err => reject(err))
-        })
+        // Upload to ImgBB
+        const ext = part.filename?.split('.').pop() ?? 'bin'
+        const filename = `${part.fieldname}-${Date.now()}.${ext}`
+        const url = await this.imgbb.uploadImage(buffer, filename)
 
-        if (f.mimetype.startsWith('image/'))       files.imagePath = fileName
-        else if (f.mimetype === 'application/pdf') files.cvPath    = fileName
+        if (part.fieldname === 'image') files.imageUrl = url
+        if (part.fieldname === 'cv')    files.cvUrl    = url
       } else {
-        fields[part.fieldname] = (part as any).value
+        fields[part.fieldname] = (part as MultipartValue).value
       }
     }
 
     return { fields, files }
   }
 
-  /** Create a user + instructor in one request (any authenticated) */
-  @UseGuards(JwtAuthGuard)
+  /** Create – SUPERADMIN, ADMIN or GYM_OWNER (gym owners auto-link to themselves) */
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.GYM_OWNER)
   @Post()
-  async create(@Req() req: FastifyRequest) {
+  async create(@Req() req: ReqWithUser) {
+    const user = req.user
     const { fields, files } = await this.parseMultipart(req)
+    const raw = fields as CreateInstructorDto
+
+    
+    if (user.role === Role.GYM_OWNER) {  // translate the *user* id to the matching *gym_owner* id
+    const owner = await this.gymOwnerSvc.findByUserId(user.id)
+    if (!owner) throw new NotFoundException('Gym owner profile missing')
+    raw.gymOwnerId = owner.id;
+ }
     const dto: CreateInstructorDto = {
-      ...(fields as any),
-      image: files.imagePath,
-      cv:    files.cvPath,
+      ...raw,
+      image: files.imageUrl,
+      cv:    files.cvUrl,
+     
     }
+
     return this.svc.create(dto)
   }
 
-  /** List with pagination & search – only SUPERADMIN & ADMIN */
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  /** List – SUPERADMIN/ADMIN get all; GYM_OWNER only theirs */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.GYM_OWNER)
   @Get()
-  findAll(
+  async findAll(
+    @Req() req: ReqWithUser,
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '12',
     @Query('search') search = '',
   ) {
+    const user = req.user
+    if (user.role === Role.GYM_OWNER) {
+      const owner = await this.gymOwnerSvc.findByUserId(user.id);
+      if (!owner) throw new NotFoundException('Gym owner profile missing');
+
+      return this.svc.findByGymOwner(                 // ← RIGHT KEY
+      owner.id,                                     // gymOwner.id
+      Number(page), Number(pageSize), search,
+      );
+    }
     return this.svc.findAll(
       Number(page),
       Number(pageSize),
@@ -93,8 +137,7 @@ export class InstructorController {
     )
   }
 
-  /** Expand row by user ID – only SUPERADMIN & ADMIN */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  /** Expand by user ID – only ADMIN & SUPERADMIN */
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   @Get('user/:uid')
   async byUser(@Param('uid') uid: string) {
@@ -103,30 +146,83 @@ export class InstructorController {
     return prof
   }
 
-  /** Get single by profile ID – only SUPERADMIN & ADMIN */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  /** Get single by profile ID – only ADMIN & SUPERADMIN */
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.svc.findOne(id)
   }
 
-  /** Update both user and instructor fields – any authenticated */
-  @UseGuards(JwtAuthGuard)
+  /** Update – SUPERADMIN, ADMIN or GYM_OWNER */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.GYM_OWNER)
   @Patch(':id')
-  async update(@Param('id') id: string, @Req() req: FastifyRequest) {
+  async update(
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
     const { fields, files } = await this.parseMultipart(req)
+    const raw = fields as Partial<CreateInstructorDto>
     const dto: UpdateInstructorDto = {
-      ...(fields as any),
-      ...(files.imagePath && { image: files.imagePath }),
-      ...(files.cvPath    && { cv:    files.cvPath    }),
+      ...raw,
+      ...(files.imageUrl && { image: files.imageUrl }),
+      ...(files.cvUrl    && { cv:    files.cvUrl    }),
     }
     return this.svc.update(id, dto)
   }
 
-  
-  /** Delete instructor (and its user) – any authenticated */
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.INSTRUCTOR)
+  @Patch('me')
+  async updateMyProfile(
+  @Req() req: any,
+  @Body() dto: UpdateInstructorDto,
+  ) {
+  const inst = await this.svc.findByUserId(req.user.id);
+  if (!inst) throw new NotFoundException('Instructor profile missing');
+
+  return this.svc.update(inst.id, dto);
+}
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.INSTRUCTOR, Role.GYM_OWNER, Role.ADMIN, Role.SUPERADMIN)
+@Get('me')
+async getMyProfile(@Req() req: any) {
+  const inst = await this.svc.findByUserId(req.user.id);
+  if (!inst) throw new NotFoundException('Profile not found');
+  return {
+    id:         inst.id,
+    full_name:  inst.user.full_name,
+    email:      inst.user.email,
+    role:       inst.user.role,
+    bio:        inst.bio,
+    link:       inst.link,
+    cv:         inst.cv,
+    image:      inst.image,
+    created_at: inst.user.created_at,
+  };
+}
+
+
+@Public()
+@Get('public')
+async findAllPublic(
+  @Query('page') page = '0',
+  @Query('pageSize') size = '50',
+  @Query('search') search = '',
+) {
+  return this.svc.findAll(
+    Number(page),
+    Number(size),
+    search,
+  )
+}
+
+
+  /** Delete – SUPERADMIN, ADMIN or GYM_OWNER */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.GYM_OWNER)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.svc.remove(id)

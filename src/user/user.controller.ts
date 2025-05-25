@@ -10,7 +10,6 @@ import {
   UseGuards,
   Req,
   Logger,
-  BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -20,6 +19,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '../auth/roles.enum'; // Relative import
+import { CreateAdminDto } from './dto/create-admin.dto';
+import type { FastifyRequest } from 'fastify'
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -38,10 +39,17 @@ export class UserController {
     return this.userService.createUser(dto, creatorRole);
   }
 
-  @Get('me')
+  // @Get('me')
+  // @UseGuards(JwtAuthGuard)
+  // me(@Req() req: any) {
+  //   return this.userService.findOneWithProfile(req.user.sub);
+  // }
+
   @UseGuards(JwtAuthGuard)
-  me(@Req() req: any) {
-    return this.userService.findOneWithProfile(req.user.sub);
+  @Get('me')
+  async getProfile(@Req() req: FastifyRequest & { user: any }) {
+    // req.user.userId was injected by your JwtStrategy
+    return this.userService.findById(req.user.userId)
   }
 
   @Get()
@@ -97,7 +105,20 @@ findAll(
   ) {
     return this.userService.deleteUser(id, hard === 'true');
   }
+  //Admin
+  /** SUPERADMIN only: create an ADMIN user */
+  @Post('admin')
+  @Roles(Role.SUPERADMIN)
+  createAdmin(@Body() dto: CreateAdminDto) {
+    return this.userService.createAdmin(dto);
+  }
 
+  /** SUPERADMIN only: hard-delete an ADMIN by ID */
+  @Delete('admin/:id')
+  @Roles(Role.SUPERADMIN)
+  deleteAdmin(@Param('id') id: string) {
+    return this.userService.deleteUser(id);
+  }
   @Post(':id/restore')
   @Roles('superadmin')
   restore(@Param('id') id: string) {
