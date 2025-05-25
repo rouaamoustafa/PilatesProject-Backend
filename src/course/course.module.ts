@@ -3,9 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Course } from './entities/course.entity';
 import { CourseService } from './course.service';
 import { CourseController } from './course.controller';
-import { CartItemModule } from 'src/cart-item/cart-item.module';
-import { Instructor } from 'src/instructor/entities/instructor.entity';
-import { GymOwner } from 'src/gym-owner/entities/gym-owner.entity';
+import { CartItemModule } from '../cart-item/cart-item.module';
+import { Instructor } from '../instructor/entities/instructor.entity';
+import { GymOwner } from '../gym-owner/entities/gym-owner.entity';
 
 /* src/courses/courses.module.ts (example) */
 @Module({

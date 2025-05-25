@@ -9,7 +9,6 @@ import { Instructor } from './entities/instructor.entity'
 import { User }       from '../user/entities/user.entity'
 import { CreateInstructorDto } from './dto/create-instructor.dto'
 import { UpdateInstructorDto } from './dto/update-instructor.dto'
-import { Public } from 'src/common/decorators/public.decorator'
 
 @Injectable()
 export class InstructorService {

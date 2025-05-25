@@ -4,8 +4,8 @@ import {
     BaseEntity,
     ManyToOne,
   } from 'typeorm';
-  import { Instructor } from '../../src/instructor/entities/instructor.entity'
-  import { Location }   from '../../src/location/entities/location.entity';
+  import { Instructor } from '../instructor/entities/instructor.entity'
+  import { Location }   from '../location/entities/location.entity';
   
   export enum Level {
     BEGINNER     = 'beginner',
