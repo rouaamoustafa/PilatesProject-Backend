@@ -132,7 +132,19 @@ async publicFindOne1(@Param('id') id: string) {
   }
 }
 
-
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GYM_OWNER)
+@Get('me/instructors')
+async myInstructors(@Req() req: any) {
+  const owner = await this.svc.findByUserId(req.user.id);
+  if (!owner) throw new NotFoundException('Profile not found');
+  // Pull their instructors (minimal fields)
+  return (owner.instructors || []).map(i => ({
+    id: i.id,
+    full_name: i.user.full_name,
+    email: i.user.email,
+  }));
+}
 
   // /** Soft-delete (admin or superadmin) */
   // @Delete(':id')

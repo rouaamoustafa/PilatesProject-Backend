@@ -27,7 +27,7 @@ import {
   
     @ManyToOne(() => Instructor, i => i.id, {
       nullable: false,
-      onDelete: 'RESTRICT',
+      onDelete: 'CASCADE',
     })
     instructor: Instructor;
   

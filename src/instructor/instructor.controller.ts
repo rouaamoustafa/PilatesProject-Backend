@@ -147,11 +147,25 @@ export class InstructorController {
   }
 
   /** Get single by profile ID – only ADMIN & SUPERADMIN */
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.svc.findOne(id)
+@Roles(Role.SUPERADMIN, Role.ADMIN, Role.GYM_OWNER)
+@Get(':id')
+async findOne(@Param('id') id: string, @Req() req: ReqWithUser) {
+  const user = req.user;
+
+  // If gym owner, only allow access to their own instructors
+  if (user.role === Role.GYM_OWNER) {
+    const instructor = await this.svc.findOne(id);
+    if (!instructor) throw new NotFoundException('Instructor not found');
+    // You MUST have a .gymOwner relation on Instructor entity!
+    if (!instructor.gymOwner || instructor.gymOwner.id !== user.id) {
+      throw new NotFoundException('Not your instructor');
+    }
+    return instructor;
   }
+
+  // Admin and superadmin see anyone
+  return this.svc.findOne(id);
+}
 
   /** Update – SUPERADMIN, ADMIN or GYM_OWNER */
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -204,6 +218,24 @@ async getMyProfile(@Req() req: any) {
   };
 }
 
+@Public()
+@Get('public/:id')
+async findOnePublic(@Param('id') id: string) {
+  const instructor = await this.svc.findOne(id)
+
+  if (!instructor) throw new NotFoundException('Instructor not found')
+
+  return {
+    id: instructor.id,
+    userId: instructor.user.id, // 🔥 ADD THIS
+    full_name: instructor.user.full_name,
+    email: instructor.user.email,
+    bio: instructor.bio,
+    link: instructor.link,
+    cv: instructor.cv,
+    image: instructor.image,
+  }
+}
 
 @Public()
 @Get('public')

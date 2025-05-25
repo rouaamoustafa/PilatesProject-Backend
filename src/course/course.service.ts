@@ -1,16 +1,24 @@
 // src/course/course.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository }             from '@nestjs/typeorm';
-import { Repository }                   from 'typeorm';
+import { In, Repository }                   from 'typeorm';
 import { Course }                       from './entities/course.entity';
 import { CreateCourseDto }              from './dto/create-course.dto';
 import { UpdateCourseDto }              from './dto/update-course.dto';
+import { GymOwner } from '../gym-owner/entities/gym-owner.entity';
+import { Instructor } from '../instructor/entities/instructor.entity';
 
 @Injectable()
 export class CourseService {
   constructor(
     @InjectRepository(Course)
     private readonly repo: Repository<Course>,
+
+    @InjectRepository(GymOwner)
+    private readonly gymOwnerRepo: Repository<GymOwner>,
+
+    @InjectRepository(Instructor)
+    private readonly instructorRepo: Repository<Instructor>,
   ) {}
 
   async create(dto: CreateCourseDto): Promise<Course> {
@@ -89,4 +97,59 @@ export class CourseService {
     const course = await this.findOne(id);
     await this.repo.remove(course);
   }
+
+  async findByInstructor(instructorId: string): Promise<Course[]> {
+  const courses = await this.repo.find({
+    where: {
+      instructor: { id: instructorId },
+    },
+    relations: ['instructor', 'instructor.user', 'location'],
+    order: {
+      date: 'DESC',
+    },
+  });
+
+  return courses;
+}
+
+
+// Inject GymOwnerRepository and InstructorRepository if needed
+
+async createByGymOwner(dto: CreateCourseDto, gymOwnerUserId: string): Promise<Course> {
+  // 1. Find gym owner by user id
+  const owner = await this.gymOwnerRepo.findOne({
+    where: { user: { id: gymOwnerUserId } },
+    relations: ['instructors'],
+  });
+  if (!owner) throw new BadRequestException('Gym owner not found');
+
+  // 2. Check that instructorId is in their instructors
+  const instructorOk = owner.instructors.some(inst => inst.id === dto.instructorId);
+  if (!instructorOk) throw new BadRequestException('Instructor does not belong to this gym owner');
+
+  // 3. Proceed as normal
+  return this.create(dto); // (your usual course creation logic)
+}
+
+async findByGymOwner(gymOwnerUserId: string): Promise<Course[]> {
+  // Find the gym owner by user id
+  const gymOwner = await this.gymOwnerRepo.findOne({
+    where: { user: { id: gymOwnerUserId } },
+    relations: ['instructors'],
+  });
+  if (!gymOwner) return [];
+
+  // Get all instructor IDs for this gym owner
+  const instructorIds = gymOwner.instructors.map(i => i.id);
+
+  // Get all courses for these instructors
+  return this.repo.find({
+    where: {
+      instructor: { id: In(instructorIds) },
+    },
+    relations: ['instructor', 'instructor.user', 'location'],
+    order: { date: 'DESC' }
+  });
+}
+
 }

@@ -11,11 +11,17 @@ import {
   ValidationPipe,
   HttpStatus,
   HttpCode,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { CourseService }    from './course.service';
 import { CreateCourseDto }  from './dto/create-course.dto';
 import { UpdateCourseDto }  from './dto/update-course.dto';
 import { Public }           from '../common/decorators/public.decorator';
+import { RolesGuard } from 'src/auth/roles.guard';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { Role } from 'src/auth/roles.enum';
+import { Roles } from 'src/auth/roles.decorator';
 
 @Controller('courses')
 export class CourseController {
@@ -27,6 +33,8 @@ export class CourseController {
     return this.svc.create(dto);
   }
 
+
+  
   @Public()
   @Get()
   findAll(
@@ -69,4 +77,25 @@ export class CourseController {
     // service remove should throw if not found
     return this.svc.remove(id).then(() => undefined);
   }
+  @Public()
+@Get('instructor/:instructorId')
+getCoursesByInstructor(@Param('instructorId') instructorId: string) {
+  return this.svc.findByInstructor(instructorId);
+}
+
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GYM_OWNER)
+@Post('me')
+createAsGymOwner(@Req() req: any, @Body() dto: CreateCourseDto) {
+  return this.svc.createByGymOwner(dto, req.user.id);
+}
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GYM_OWNER)
+@Get('me')
+async myCourses(@Req() req) {
+  return this.svc.findByGymOwner(req.user.id)
+}
+
 }
