@@ -259,4 +259,10 @@ async findAllPublic(
   remove(@Param('id') id: string) {
     return this.svc.remove(id)
   }
+
+   @UseGuards(JwtAuthGuard)
+  @Get('mine')
+  async getMine(@Req() req) {
+    return this.svc.findByGymOwnerId(req.user.id);
+  }
 }

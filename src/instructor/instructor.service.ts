@@ -203,4 +203,11 @@ export class InstructorService {
     await this.userRepo.remove(inst.user)
     return { message: 'Instructor and user deleted' }
   }
+
+  async findByGymOwnerId(gymOwnerId: string) {
+    return this.instRepo.find({
+      where: { gymOwner: { id: gymOwnerId } },
+      relations: ['user'], // Add more relations as needed
+    });
+  }
 }

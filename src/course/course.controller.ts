@@ -14,7 +14,7 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
-import { CourseService }    from './course.service';
+import { CourseService,CourseGym }    from './course.service';
 import { CreateCourseDto }  from './dto/create-course.dto';
 import { UpdateCourseDto }  from './dto/update-course.dto';
 import { Public }           from '../common/decorators/public.decorator';
@@ -22,16 +22,20 @@ import { RolesGuard } from 'src/auth/roles.guard';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { Role } from 'src/auth/roles.enum';
 import { Roles } from 'src/auth/roles.decorator';
+import { InjectRepository } from '@nestjs/typeorm';
+
 
 @Controller('courses')
 export class CourseController {
-  constructor(private readonly svc: CourseService) {}
+  constructor(private readonly svc: CourseService,
+   
+  ) {}
 
-  @Public()
   @Post()
-  create(@Body() dto: CreateCourseDto) {
-    return this.svc.create(dto);
-  }
+@UseGuards(JwtAuthGuard)
+async create(@Body() dto: CreateCourseDto, @Req() req) {
+  return this.svc.create(dto, req.user);
+}
 
 
   
@@ -69,7 +73,7 @@ export class CourseController {
   ) {
     return this.svc.update(id, dto);
   }
-
+ 
   @Public()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -91,11 +95,32 @@ createAsGymOwner(@Req() req: any, @Body() dto: CreateCourseDto) {
   return this.svc.createByGymOwner(dto, req.user.id);
 }
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.GYM_OWNER)
-@Get('me')
-async myCourses(@Req() req) {
-  return this.svc.findByGymOwner(req.user.id)
+@UseGuards(JwtAuthGuard)
+  @Get('gym-owner/me')
+  async getCoursesForGymOwner(
+    @Req() req,
+    @Query('page') page = '0',
+    @Query('pageSize') pageSize = '12',
+    @Query('search') search = '',
+  ) {
+    return this.svc.findCoursesForGymOwner(
+      req.user.id,
+      Number(page),
+      Number(pageSize),
+      search,
+    );
+  }
+
+  @Public()
+  @Get('gym-owner/:id/courses-gym')
+  async getCoursesGym(@Param('id') id: string): Promise<CourseGym[]> {
+    return this.svc.getCoursesGym(id);
+  }
+@Get('instructor/me')
+@UseGuards(JwtAuthGuard)
+async getCoursesForInstructor(@Req() req, @Query('page') page = '0', @Query('pageSize') pageSize = '12', @Query('search') search = '') {
+  console.log('Instructor ID from req.user.id:', req.user.id);
+  return this.svc.findCoursesForInstructor(req.user.id, Number(page), Number(pageSize), search);
 }
 
 }
